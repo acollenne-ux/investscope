@@ -22,15 +22,36 @@ async function fetchJSON(url, timeout = 12000) {
 }
 
 // Profile + quote (stable API: query params, not path params)
+// NOTE: quote endpoint is premium for non-US stocks
+// profile always works and contains price, change, currency, marketCap etc.
 async function getStockProfile(symbol) {
+  const sym = encodeURIComponent(symbol);
   const [profile, quote] = await Promise.all([
-    fetchJSON(`${BASE}/profile?symbol=${encodeURIComponent(symbol)}&apikey=${FMP}`),
-    fetchJSON(`${BASE}/quote?symbol=${encodeURIComponent(symbol)}&apikey=${FMP}`)
+    fetchJSON(`${BASE}/profile?symbol=${sym}&apikey=${FMP}`),
+    fetchJSON(`${BASE}/quote?symbol=${sym}&apikey=${FMP}`)
   ]);
-  // Stable API returns array
   const profileArr = Array.isArray(profile) ? profile : (profile ? [profile] : []);
   const quoteArr = Array.isArray(quote) ? quote : (quote ? [quote] : []);
-  return { profile: profileArr[0] || null, quote: quoteArr[0] || null };
+  const profileData = profileArr[0] || null;
+  let quoteData = quoteArr[0] || null;
+
+  // If quote is not available (premium/non-US), build quote-like object from profile
+  if (!quoteData && profileData) {
+    quoteData = {
+      price: profileData.price,
+      change: profileData.change,
+      changesPercentage: profileData.changePercentage,
+      currency: profileData.currency,
+      marketCap: profileData.marketCap,
+      volume: profileData.volume,
+      avgVolume: profileData.averageVolume,
+      name: profileData.companyName,
+      exchange: profileData.exchange,
+      pe: null, // Not available in profile
+      _fromProfile: true
+    };
+  }
+  return { profile: profileData, quote: quoteData };
 }
 
 // Financial ratios (stable API)
