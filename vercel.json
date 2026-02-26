@@ -2,6 +2,21 @@
   "functions": {
     "src/app/api/claude/route.js": {
       "maxDuration": 60
+    },
+    "src/app/api/ai/deepseek/route.js": {
+      "maxDuration": 30
+    },
+    "src/app/api/ai/mistral/route.js": {
+      "maxDuration": 45
+    },
+    "src/app/api/fmp/route.js": {
+      "maxDuration": 45
+    },
+    "src/app/api/macro/route.js": {
+      "maxDuration": 45
+    },
+    "src/app/api/news/route.js": {
+      "maxDuration": 20
     }
   }
 }
