@@ -74,13 +74,15 @@ async function getRatios(symbol) {
 // Income statement + balance sheet (stable API)
 async function getFinancials(symbol) {
   const sym = encodeURIComponent(symbol);
-  const [income, balance] = await Promise.all([
+  const [income, balance, cashflow] = await Promise.all([
     fetchJSON(`${BASE}/income-statement?symbol=${sym}&limit=5&apikey=${FMP}`),
-    fetchJSON(`${BASE}/balance-sheet-statement?symbol=${sym}&limit=1&apikey=${FMP}`)
+    fetchJSON(`${BASE}/balance-sheet-statement?symbol=${sym}&limit=1&apikey=${FMP}`),
+    fetchJSON(`${BASE}/cash-flow-statement?symbol=${sym}&limit=3&apikey=${FMP}`)
   ]);
   const incomeArr = Array.isArray(income) ? income : [];
   const balanceArr = Array.isArray(balance) ? balance : [];
-  return { income: incomeArr, balance: balanceArr[0] || null };
+  const cashflowArr = Array.isArray(cashflow) ? cashflow : [];
+  return { income: incomeArr, balance: balanceArr[0] || null, cashflow: cashflowArr };
 }
 
 // Technical indicators from Twelve Data (unchanged)
@@ -124,6 +126,51 @@ async function getSectorPerf() {
 async function getCountryStocks(exchange, limit = 10) {
   const data = await fetchJSON(`${BASE}/stock-screener?exchange=${encodeURIComponent(exchange)}&limit=${limit}&apikey=${FMP}`);
   return Array.isArray(data) ? data : [];
+}
+
+// ═══════════════════════════════════════════════════════════
+// ETF-SPECIFIC ENDPOINTS (NEW)
+// ═══════════════════════════════════════════════════════════
+
+// ETF Profile (uses same profile endpoint — works for ETFs too)
+async function getETFProfile(symbol) {
+  return getStockProfile(symbol);
+}
+
+// ETF Holdings — top holdings of the ETF
+async function getETFHoldings(symbol) {
+  const sym = encodeURIComponent(symbol);
+  const data = await fetchJSON(`${BASE}/etf-holder?symbol=${sym}&apikey=${FMP}`);
+  return Array.isArray(data) ? data.slice(0, 20) : [];
+}
+
+// ETF Sector Weightings
+async function getETFSectorWeights(symbol) {
+  const sym = encodeURIComponent(symbol);
+  const data = await fetchJSON(`${BASE}/etf-sector-weightings?symbol=${sym}&apikey=${FMP}`);
+  return Array.isArray(data) ? data : [];
+}
+
+// ETF Country Weightings
+async function getETFCountryWeights(symbol) {
+  const sym = encodeURIComponent(symbol);
+  const data = await fetchJSON(`${BASE}/etf-country-weightings?symbol=${sym}&apikey=${FMP}`);
+  return Array.isArray(data) ? data : [];
+}
+
+// ETF Stock Exposure (what stocks it holds and in what proportion)
+async function getETFStockExposure(symbol) {
+  const sym = encodeURIComponent(symbol);
+  const data = await fetchJSON(`${BASE}/etf-stock-exposure?symbol=${sym}&apikey=${FMP}`);
+  return Array.isArray(data) ? data.slice(0, 15) : [];
+}
+
+// ETF Info / metadata
+async function getETFInfo(symbol) {
+  const sym = encodeURIComponent(symbol);
+  const data = await fetchJSON(`${BASE}/etf-info?symbol=${sym}&apikey=${FMP}`);
+  const arr = Array.isArray(data) ? data : (data ? [data] : []);
+  return arr[0] || null;
 }
 
 export async function POST(request) {
@@ -174,6 +221,47 @@ export async function POST(request) {
         return NextResponse.json({
           success: true,
           data: { ...profileData, ...ratiosData, ...financialsData, technicals: techData, dividends: divData },
+          updatedAt: new Date().toISOString()
+        });
+      }
+      // ── ETF ENDPOINTS ──
+      case 'etf_profile': {
+        const data = await getETFProfile(symbol);
+        return NextResponse.json({ success: true, data, updatedAt: new Date().toISOString() });
+      }
+      case 'etf_holdings': {
+        const data = await getETFHoldings(symbol);
+        return NextResponse.json({ success: true, data, updatedAt: new Date().toISOString() });
+      }
+      case 'etf_sectors': {
+        const data = await getETFSectorWeights(symbol);
+        return NextResponse.json({ success: true, data, updatedAt: new Date().toISOString() });
+      }
+      case 'etf_countries': {
+        const data = await getETFCountryWeights(symbol);
+        return NextResponse.json({ success: true, data, updatedAt: new Date().toISOString() });
+      }
+      case 'full_etf': {
+        const [profileData, holdings, sectors, countries, exposure, info, techData] = await Promise.all([
+          getETFProfile(symbol),
+          getETFHoldings(symbol),
+          getETFSectorWeights(symbol),
+          getETFCountryWeights(symbol),
+          getETFStockExposure(symbol),
+          getETFInfo(symbol),
+          getTechnicals(symbol)
+        ]);
+        return NextResponse.json({
+          success: true,
+          data: {
+            ...profileData,
+            holdings,
+            sectorWeights: sectors,
+            countryWeights: countries,
+            stockExposure: exposure,
+            etfInfo: info,
+            technicals: techData
+          },
           updatedAt: new Date().toISOString()
         });
       }

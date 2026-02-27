@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { COUNTRY_DATA, PEA_COUNTRIES, cycleColors, cycleIcons, signalColors } from '../lib/constants';
 import { storage } from '../lib/storage';
-import { fetchCountryAnalysis, fetchStockAnalysis, searchStocks, fetchAISuggestedTPSL, fetchCurrentPrice } from '../lib/api';
+import { fetchCountryAnalysis, fetchStockAnalysis, fetchETFAnalysis, searchStocks, fetchAISuggestedTPSL, fetchCurrentPrice } from '../lib/api';
 import { getPortfolio, savePortfolio, addPosition, updateTPSL, updateCurrentPrice, removePosition, calcPnL, calcPortfolioSummary, updatePosition } from '../lib/portfolio';
 import { calcTPSLProbability, calcCursorPosition } from '../lib/probability';
 
@@ -300,15 +300,19 @@ function CountryList({ countries, onSelect, searchQuery }) {
 function CountryDetail({ country, onBack, onSelectStock, loading }) {
   // Map field names from API response
   const c = country;
-  const gdpLast5 = c.gdp_last5 || c.gdp_growth_5y || [];
+  const gdpForecasts = c.macroData?.gdpForecasts || c.gdp_forecasts || c.gdp_last5 || [];
   const topStocks = c.top5_stocks || c.top_stocks || [];
-  const sectorsBuyStrong = c.sectors_buy_strong || [];
+  const sectorsBuyStrong = c.sectors_strong_buy || c.sectors_buy_strong || [];
   const sectorsBuy = c.sectors_buy || [];
   const sectorsSell = c.sectors_sell || [];
-  const sectorsSellStrong = c.sectors_sell_strong || [];
-  const cycleReasoning = c.cycle_reasoning || c.cycle_explanation || '';
+  const sectorsSellStrong = c.sectors_strong_sell || c.sectors_sell_strong || [];
+  const cycleReasoning = c.cycle_methodology || c.cycle_reasoning || c.cycle_explanation || '';
+  const cycleConfidence = c.cycle_confidence || '';
+  const cycleNextPhase = c.cycle_next_phase || '';
   const macroReasoning = c.macro_reasoning || c.score_explanation || '';
   const unemployment = c.unemployment_rate || c.unemployment;
+  const riskFactors = c.risk_factors || [];
+  const catalysts = c.catalysts || [];
 
   return (
     <div style={{ padding: '0 12px' }} className="fade-in">
@@ -348,10 +352,28 @@ function CountryDetail({ country, onBack, onSelectStock, loading }) {
             ))}
           </div>
 
-          {/* Cycle */}
+          {/* Cycle — Institutional Grade */}
           {c.cycle && (
-            <Section title="CYCLE ÉCONOMIQUE" icon="📈" defaultOpen={true}>
+            <Section title="CYCLE ÉCONOMIQUE (NBER/CEPR)" icon="📈" defaultOpen={true}>
               <CycleBadge cycle={c.cycle} phase={c.cycle_phase} />
+              {c.output_gap_estimate && (
+                <div style={{ marginTop: 6, padding: '6px 8px', background: '#1e293b', borderRadius: 6 }}>
+                  <span style={{ color: '#64748b', fontSize: 9, fontWeight: 600 }}>OUTPUT GAP: </span>
+                  <span style={{ color: '#e2e8f0', fontSize: 11, fontWeight: 600 }}>{c.output_gap_estimate}</span>
+                </div>
+              )}
+              {cycleConfidence && (
+                <div style={{ marginTop: 4, fontSize: 10 }}>
+                  <span style={{ color: '#64748b', fontWeight: 600 }}>Confiance: </span>
+                  <span style={{ color: cycleConfidence.includes('haute') ? '#22c55e' : cycleConfidence.includes('basse') ? '#ef4444' : '#f59e0b' }}>{cycleConfidence}</span>
+                </div>
+              )}
+              {cycleNextPhase && (
+                <div style={{ marginTop: 4, fontSize: 10 }}>
+                  <span style={{ color: '#64748b', fontWeight: 600 }}>Phase suivante: </span>
+                  <span style={{ color: '#cbd5e1' }}>{cycleNextPhase}</span>
+                </div>
+              )}
               {cycleReasoning && <p style={{ color: '#94a3b8', fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>{cycleReasoning}</p>}
             </Section>
           )}
@@ -367,48 +389,75 @@ function CountryDetail({ country, onBack, onSelectStock, loading }) {
               <InfoRow label="PMI Services" value={c.pmi_services} />
             </div>
 
-            {/* PIB 5 ans */}
-            {gdpLast5.length > 0 && (
-              <div style={{ marginTop: 8 }}>
-                <div style={{ fontSize: 10, color: '#64748b', marginBottom: 4 }}>PIB 5 ans</div>
-                <div style={{ display: 'flex', gap: 3 }}>
-                  {gdpLast5.map((g, i) => {
+            {/* PIB — Prévisions FMI (historique + forecast) */}
+            {gdpForecasts.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 10, color: '#64748b', marginBottom: 6, fontWeight: 600 }}>📈 CROISSANCE PIB — PRÉVISIONS FMI</div>
+                <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end' }}>
+                  {gdpForecasts.map((g, i) => {
                     const val = typeof g === 'object' ? g.value : g;
-                    const year = typeof g === 'object' ? g.year : '';
+                    const year = typeof g === 'object' ? (g.year || g.date) : '';
+                    const isForecast = typeof g === 'object' ? g.isForecast : false;
                     const numVal = parseFloat(String(val).replace('%', ''));
+                    const displayVal = typeof numVal === 'number' && !isNaN(numVal) ? `${numVal.toFixed(1)}%` : val;
+                    const barH = Math.max(12, Math.min(50, Math.abs(numVal) * 8));
                     return (
-                      <div key={i} style={{
-                        flex: 1, textAlign: 'center', padding: 4, borderRadius: 4,
-                        background: numVal >= 0 ? '#22c55e11' : '#ef444411',
-                        color: numVal >= 0 ? '#22c55e' : '#ef4444', fontSize: 10, fontWeight: 600
-                      }}>
-                        {year && <div style={{ fontSize: 8, color: '#64748b', marginBottom: 1 }}>{year}</div>}
-                        {val}
+                      <div key={i} style={{ flex: 1, textAlign: 'center' }}>
+                        <div style={{
+                          height: barH, borderRadius: '3px 3px 0 0', margin: '0 auto', width: '80%',
+                          background: isForecast
+                            ? (numVal >= 0 ? 'repeating-linear-gradient(45deg, #22c55e33, #22c55e33 2px, #22c55e11 2px, #22c55e11 4px)' : 'repeating-linear-gradient(45deg, #ef444433, #ef444433 2px, #ef444411 2px, #ef444411 4px)')
+                            : (numVal >= 0 ? '#22c55e33' : '#ef444433'),
+                          border: isForecast ? `1px dashed ${numVal >= 0 ? '#22c55e55' : '#ef444455'}` : 'none'
+                        }} />
+                        <div style={{
+                          padding: '3px 1px', borderRadius: '0 0 4px 4px',
+                          background: isForecast ? '#3b82f611' : (numVal >= 0 ? '#22c55e08' : '#ef444408'),
+                          color: numVal >= 0 ? '#22c55e' : '#ef4444', fontSize: 9, fontWeight: 700
+                        }}>{displayVal}</div>
+                        <div style={{ fontSize: 7, color: isForecast ? '#3b82f6' : '#475569', marginTop: 1 }}>
+                          {year}{isForecast ? '*' : ''}
+                        </div>
                       </div>
                     );
                   })}
                 </div>
+                <div style={{ fontSize: 8, color: '#475569', marginTop: 4, textAlign: 'right' }}>* Prévisions FMI WEO</div>
               </div>
             )}
           </Section>
 
           {/* Indicateurs avancés */}
-          {(c.building_permits_trend || c.private_credit_trend || c.capital_flows) && (
+          {(c.building_permits_trend || c.private_credit_trend || c.capital_flows || c.output_gap_estimate || c.yield_curve || c.inflation_trend || c.credit_growth || c.central_bank_bias) && (
             <Section title="INDICATEURS AVANCÉS" icon="🔍" defaultOpen={false}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+                {c.yield_curve && (
+                  <InfoRow label="Courbe des taux" value={c.yield_curve} color={c.yield_curve.toLowerCase().includes('invers') ? '#ef4444' : c.yield_curve.toLowerCase().includes('normal') ? '#22c55e' : '#f59e0b'} />
+                )}
+                {c.inflation_trend && (
+                  <InfoRow label="Tendance inflation" value={c.inflation_trend} color={c.inflation_trend.toLowerCase().includes('baiss') ? '#22c55e' : c.inflation_trend.toLowerCase().includes('hauss') ? '#ef4444' : '#f59e0b'} />
+                )}
+                {c.credit_growth && (
+                  <InfoRow label="Croissance crédit" value={c.credit_growth} />
+                )}
+                {c.central_bank_bias && (
+                  <InfoRow label="Biais banque centrale" value={c.central_bank_bias} color={c.central_bank_bias.toLowerCase().includes('dovish') || c.central_bank_bias.toLowerCase().includes('accommod') ? '#22c55e' : c.central_bank_bias.toLowerCase().includes('hawkish') || c.central_bank_bias.toLowerCase().includes('restrict') ? '#ef4444' : '#f59e0b'} />
+                )}
+              </div>
               {c.building_permits_trend && (
-                <div style={{ marginBottom: 6 }}>
+                <div style={{ marginTop: 6, marginBottom: 4 }}>
                   <span style={{ color: '#64748b', fontSize: 10, fontWeight: 600 }}>Permis de construire: </span>
                   <span style={{ color: '#e2e8f0', fontSize: 11 }}>{c.building_permits_trend}</span>
                 </div>
               )}
               {c.private_credit_trend && (
-                <div style={{ marginBottom: 6 }}>
+                <div style={{ marginBottom: 4 }}>
                   <span style={{ color: '#64748b', fontSize: 10, fontWeight: 600 }}>Crédit privé: </span>
                   <span style={{ color: '#e2e8f0', fontSize: 11 }}>{c.private_credit_trend}</span>
                 </div>
               )}
               {c.capital_flows && (
-                <div style={{ marginBottom: 6 }}>
+                <div style={{ marginBottom: 4 }}>
                   <span style={{ color: '#64748b', fontSize: 10, fontWeight: 600 }}>Flux de capitaux: </span>
                   <span style={{ color: '#e2e8f0', fontSize: 11 }}>{c.capital_flows}</span>
                 </div>
@@ -524,7 +573,7 @@ function CountryDetail({ country, onBack, onSelectStock, loading }) {
             {c.news && c.news.length > 0 && (
               <div style={{ marginTop: 8 }}>
                 <div style={{ fontSize: 9, color: '#64748b', marginBottom: 4, fontWeight: 600 }}>ARTICLES RÉCENTS</div>
-                {c.news.slice(0, 5).map((article, i) => (
+                {c.news.slice(0, 12).map((article, i) => (
                   <a key={i} href={article.url} target="_blank" rel="noopener noreferrer"
                     style={{ display: 'block', padding: '6px 0', borderBottom: '1px solid #1e293b22', textDecoration: 'none' }}>
                     <div style={{ color: '#cbd5e1', fontSize: 11, lineHeight: 1.3 }}>{article.title}</div>
@@ -536,6 +585,34 @@ function CountryDetail({ country, onBack, onSelectStock, loading }) {
               </div>
             )}
           </Section>
+
+          {/* Risques & Catalyseurs */}
+          {(riskFactors.length > 0 || catalysts.length > 0) && (
+            <Section title="RISQUES & CATALYSEURS" icon="⚠️" defaultOpen={true}>
+              {catalysts.length > 0 && (
+                <div style={{ marginBottom: riskFactors.length > 0 ? 10 : 0 }}>
+                  <div style={{ fontSize: 9, color: '#22c55e', fontWeight: 700, marginBottom: 4 }}>🚀 CATALYSEURS POSITIFS</div>
+                  {catalysts.map((cat, i) => (
+                    <div key={`cat${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '4px 0' }}>
+                      <span style={{ color: '#22c55e', fontSize: 10, flexShrink: 0 }}>▸</span>
+                      <span style={{ color: '#cbd5e1', fontSize: 11, lineHeight: 1.4 }}>{typeof cat === 'string' ? cat : cat.description || cat.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {riskFactors.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 9, color: '#ef4444', fontWeight: 700, marginBottom: 4 }}>🛑 FACTEURS DE RISQUE</div>
+                  {riskFactors.map((risk, i) => (
+                    <div key={`risk${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '4px 0' }}>
+                      <span style={{ color: '#ef4444', fontSize: 10, flexShrink: 0 }}>▸</span>
+                      <span style={{ color: '#cbd5e1', fontSize: 11, lineHeight: 1.4 }}>{typeof risk === 'string' ? risk : risk.description || risk.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
+          )}
 
           {/* Justification des scores */}
           {macroReasoning && (
@@ -716,6 +793,84 @@ function StockDetail({ stock, onBack, loading, watchlist, toggleWatchlist }) {
               <InfoRow label="Dernier montant" value={s.last_dividend_amount} />
             </Section>
           )}
+
+          {/* ETF-specific sections */}
+          {s.isETF && s.etfData && (
+            <>
+              {/* ETF Info */}
+              {s.etfData.info && (
+                <Section title="INFORMATIONS ETF" icon="📋" defaultOpen={true}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+                    <InfoRow label="AUM" value={s.etfData.info.totalAssets ? `${(s.etfData.info.totalAssets / 1e9).toFixed(2)}B $` : null} />
+                    <InfoRow label="Frais (TER)" value={s.etfData.info.expenseRatio ? `${(s.etfData.info.expenseRatio * 100).toFixed(2)}%` : null} />
+                    <InfoRow label="Positions" value={s.etfData.info.holdingsCount} />
+                    <InfoRow label="Dividende" value={s.etfData.info.dividendYield ? `${(s.etfData.info.dividendYield * 100).toFixed(2)}%` : null} />
+                    <InfoRow label="Beta" value={s.etfData.info.beta?.toFixed(2)} />
+                    <InfoRow label="Inception" value={s.etfData.info.inceptionDate} />
+                  </div>
+                  {s.etfData.info.description && (
+                    <p style={{ color: '#94a3b8', fontSize: 10, lineHeight: 1.5, marginTop: 6, marginBottom: 0 }}>{s.etfData.info.description.slice(0, 200)}...</p>
+                  )}
+                </Section>
+              )}
+
+              {/* Top Holdings */}
+              {s.etfData.holdings && s.etfData.holdings.length > 0 && (
+                <Section title={`TOP ${Math.min(15, s.etfData.holdings.length)} POSITIONS`} icon="🏢" defaultOpen={true}>
+                  {s.etfData.holdings.slice(0, 15).map((h, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderBottom: '1px solid #1e293b22' }}>
+                      <div style={{ width: 20, height: 20, borderRadius: 4, background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#64748b' }}>{i + 1}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ color: '#e2e8f0', fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.asset || h.name}</div>
+                        {h.name && h.asset && <div style={{ color: '#64748b', fontSize: 9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</div>}
+                      </div>
+                      <div style={{ color: '#3b82f6', fontSize: 11, fontWeight: 700 }}>{h.weightPercentage ? `${parseFloat(h.weightPercentage).toFixed(1)}%` : ''}</div>
+                    </div>
+                  ))}
+                </Section>
+              )}
+
+              {/* Sector Weights */}
+              {s.etfData.sectors && s.etfData.sectors.length > 0 && (
+                <Section title="RÉPARTITION SECTORIELLE" icon="🏭" defaultOpen={true}>
+                  {s.etfData.sectors.sort((a, b) => parseFloat(b.weightPercentage || 0) - parseFloat(a.weightPercentage || 0)).map((sec, i) => {
+                    const pct = parseFloat(sec.weightPercentage || 0);
+                    return (
+                      <div key={i} style={{ marginBottom: 4 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 2 }}>
+                          <span style={{ color: '#cbd5e1' }}>{sec.sector}</span>
+                          <span style={{ color: '#3b82f6', fontWeight: 600 }}>{pct.toFixed(1)}%</span>
+                        </div>
+                        <div style={{ height: 4, background: '#1e293b', borderRadius: 2 }}>
+                          <div style={{ height: 4, borderRadius: 2, background: '#3b82f6', width: `${Math.min(pct, 100)}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </Section>
+              )}
+
+              {/* Country Weights */}
+              {s.etfData.countries && s.etfData.countries.length > 0 && (
+                <Section title="RÉPARTITION GÉOGRAPHIQUE" icon="🌍" defaultOpen={false}>
+                  {s.etfData.countries.sort((a, b) => parseFloat(b.weightPercentage || 0) - parseFloat(a.weightPercentage || 0)).slice(0, 15).map((ctry, i) => {
+                    const pct = parseFloat(ctry.weightPercentage || 0);
+                    return (
+                      <div key={i} style={{ marginBottom: 4 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 2 }}>
+                          <span style={{ color: '#cbd5e1' }}>{ctry.country}</span>
+                          <span style={{ color: '#8b5cf6', fontWeight: 600 }}>{pct.toFixed(1)}%</span>
+                        </div>
+                        <div style={{ height: 4, background: '#1e293b', borderRadius: 2 }}>
+                          <div style={{ height: 4, borderRadius: 2, background: '#8b5cf6', width: `${Math.min(pct, 100)}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </Section>
+              )}
+            </>
+          )}
         </>
       )}
     </div>
@@ -766,11 +921,14 @@ function SearchView({ searchQuery, onSelectStock, watchlist, toggleWatchlist }) 
               flex: 1, display: 'flex', alignItems: 'center', gap: 8,
               background: 'none', border: 'none', textAlign: 'left', padding: 0
             }}>
-              <div style={{ width: 36, height: 36, borderRadius: 8, background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#3b82f6' }}>
-                {r.symbol?.slice(0, 2)}
+              <div style={{ width: 36, height: 36, borderRadius: 8, background: r.isETF ? '#8b5cf622' : '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: r.isETF ? 11 : 14, fontWeight: 700, color: r.isETF ? '#8b5cf6' : '#3b82f6' }}>
+                {r.isETF ? 'ETF' : r.symbol?.slice(0, 2)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{r.symbol}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{r.symbol}</span>
+                  {r.isETF && <span style={{ fontSize: 8, background: '#8b5cf622', color: '#a78bfa', padding: '1px 5px', borderRadius: 3, fontWeight: 700 }}>ETF</span>}
+                </div>
                 <div style={{ color: '#64748b', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {r.name || r.companyName} {r.exchange && `• ${r.exchange}`}
                 </div>
@@ -1156,15 +1314,22 @@ function InvestScopeApp() {
     if (!stock.overall_score) {
       setLoadingStock(true);
       try {
-        const countryName = selectedCountry?.name || '';
-        const analysis = await fetchStockAnalysis(stock.symbol, stock.name || stock.companyName || '', countryName);
+        let analysis;
+        if (stock.isETF) {
+          // ETF-specific analysis pipeline
+          analysis = await fetchETFAnalysis(stock.symbol, stock.name || stock.companyName || '');
+        } else {
+          // Regular stock analysis
+          const countryName = selectedCountry?.name || '';
+          analysis = await fetchStockAnalysis(stock.symbol, stock.name || stock.companyName || '', countryName);
+        }
         if (analysis) {
-          const updated = { ...stock, ...analysis };
+          const updated = { ...stock, ...analysis, isETF: stock.isETF };
           setSelectedStock(updated);
           setStockCache(prev => ({ ...prev, [stock.symbol]: updated }));
           storage.set(`stock_${stock.symbol}`, updated, 12 * 3600 * 1000);
         }
-      } catch (e) { console.error('Stock analysis failed:', e); }
+      } catch (e) { console.error('Analysis failed:', e); }
       setLoadingStock(false);
     }
   }, [selectedCountry]);
