@@ -50,3 +50,9 @@ export const storage = {
     entries.slice(0, 10).forEach((e) => localStorage.removeItem(e.key));
   },
 };
+
+// Named exports for api.js compatibility (api passes TTL in seconds)
+export function storageGet(key) { return storage.get(key); }
+export function storageSet(key, value, ttlSeconds) {
+  storage.set(key, value, ttlSeconds ? ttlSeconds * 1000 : null);
+}
