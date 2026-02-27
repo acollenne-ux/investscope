@@ -1,4 +1,13 @@
 {
+  "headers": [
+    {
+      "source": "/.well-known/assetlinks.json",
+      "headers": [
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
+      ]
+    }
+  ],
   "functions": {
     "src/app/api/claude/route.js": {
       "maxDuration": 60

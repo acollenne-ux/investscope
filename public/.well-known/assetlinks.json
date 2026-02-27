@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.investscope.app",
+        "sha256_cert_fingerprints": ["FE:38:AB:D4:DF:12:40:E9:F0:99:1B:1C:B9:A7:17:60:15:B7:A5:E2:5E:0A:E1:5E:F7:23:AA:D8:28:A8:1A:B8"]
+      }
+    }]
