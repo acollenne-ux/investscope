@@ -1,4 +1,5 @@
 import './globals.css';
+import AuthProvider from '../components/AuthProvider';
 
 export const metadata = {
   title: 'InvestScope',
@@ -23,7 +24,7 @@ export default function RootLayout({ children }) {
         <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
       </head>
       <body>
-        {children}
+        <AuthProvider>{children}</AuthProvider>
         <script dangerouslySetInnerHTML={{ __html: `if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js')});}` }} />
       </body>
     </html>

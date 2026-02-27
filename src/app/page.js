@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { signOut } from 'next-auth/react';
 import { COUNTRY_DATA, PEA_COUNTRIES, cycleColors, cycleIcons, signalColors } from '../lib/constants';
 import { storage } from '../lib/storage';
 import { fetchCountryAnalysis, fetchStockAnalysis, fetchETFAnalysis, searchStocks, fetchAISuggestedTPSL, fetchCurrentPrice } from '../lib/api';
@@ -167,6 +168,16 @@ function NavBar({ activeTab, setActiveTab, searchQuery, setSearchQuery, loadProg
               }}
             />
           </div>
+          <button
+            onClick={() => signOut({ callbackUrl: '/login' })}
+            title="Déconnexion"
+            style={{
+              background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)',
+              fontSize: 16, cursor: 'pointer', padding: '4px 6px', lineHeight: 1,
+            }}
+          >
+            ⏻
+          </button>
         </div>
         {loadProgress && loadProgress.total > 0 && loadProgress.done < loadProgress.total && (
           <div style={{ height: 3, background: '#1e293b' }}>
