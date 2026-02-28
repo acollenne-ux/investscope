@@ -229,35 +229,65 @@ function NavBar({ activeTab, setActiveTab, searchQuery, setSearchQuery, loadProg
 
 function CountryList({ countries, onSelect, searchQuery }) {
   const [filter, setFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('score');
 
   const filtered = countries
     .filter(c => {
       if (filter === 'pea' && !PEA_COUNTRIES.includes(c.code)) return false;
       if (filter === 'horspea' && PEA_COUNTRIES.includes(c.code)) return false;
+      if (filter === 'europe') return c.region === 'Europe';
+      if (filter === 'asie') return c.region === 'Asie';
+      if (filter === 'amerique') return c.region === 'Amérique';
+      if (filter === 'afrique') return c.region === 'Afrique';
+      if (filter === 'moyenorient') return c.region === 'Moyen-Orient';
+      if (filter === 'oceanie') return c.region === 'Océanie';
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         return c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q) || c.region.toLowerCase().includes(q);
       }
       return true;
     })
-    .sort((a, b) => (b.overall_score || 0) - (a.overall_score || 0));
+    .sort((a, b) => {
+      if (sortBy === 'alpha') return a.name.localeCompare(b.name, 'fr');
+      return (b.overall_score || 0) - (a.overall_score || 0);
+    });
 
   return (
     <div style={{ padding: '0 12px' }}>
-      <div style={{ display: 'flex', gap: 8, padding: '12px 0', overflowX: 'auto' }}>
+      <div style={{ display: 'flex', gap: 6, padding: '12px 0 4px', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
         {[
           { id: 'all', label: 'Tous' },
           { id: 'pea', label: '🇪🇺 PEA' },
-          { id: 'horspea', label: '🌏 Hors PEA' },
+          { id: 'europe', label: '🏰 Europe' },
+          { id: 'asie', label: '🏯 Asie' },
+          { id: 'amerique', label: '🗽 Amérique' },
+          { id: 'afrique', label: '🌍 Afrique' },
+          { id: 'moyenorient', label: '🕌 M-Orient' },
+          { id: 'oceanie', label: '🏝️ Océanie' },
         ].map(f => (
           <button key={f.id} onClick={() => setFilter(f.id)} style={{
-            padding: '6px 14px', borderRadius: 20, border: '1px solid',
+            padding: '5px 10px', borderRadius: 16, border: '1px solid',
             borderColor: filter === f.id ? '#3b82f6' : '#334155',
             background: filter === f.id ? '#3b82f622' : 'transparent',
             color: filter === f.id ? '#3b82f6' : '#94a3b8',
-            fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap'
+            fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap'
           }}>{f.label}</button>
         ))}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0 8px' }}>
+        <span style={{ fontSize: 10, color: '#475569' }}>{filtered.length} pays</span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button onClick={() => setSortBy('score')} style={{
+            padding: '3px 8px', borderRadius: 4, border: 'none', fontSize: 9, fontWeight: 600,
+            background: sortBy === 'score' ? '#3b82f622' : 'transparent',
+            color: sortBy === 'score' ? '#3b82f6' : '#475569',
+          }}>Score ↓</button>
+          <button onClick={() => setSortBy('alpha')} style={{
+            padding: '3px 8px', borderRadius: 4, border: 'none', fontSize: 9, fontWeight: 600,
+            background: sortBy === 'alpha' ? '#3b82f622' : 'transparent',
+            color: sortBy === 'alpha' ? '#3b82f6' : '#475569',
+          }}>A→Z</button>
+        </div>
       </div>
 
       {filtered.map((country, idx) => (
@@ -641,7 +671,7 @@ function CountryDetail({ country, onBack, onSelectStock, loading }) {
 // DÉTAIL ACTION (with real data mapping)
 // ═══════════════════════════════════════════════════════════════
 
-function StockDetail({ stock, onBack, loading, watchlist, toggleWatchlist }) {
+function StockDetail({ stock, onBack, loading, watchlist, toggleWatchlist, onAddToPortfolio }) {
   const s = stock;
   const inWatchlist = watchlist.some(w => w.symbol === s.symbol);
 
@@ -690,12 +720,16 @@ function StockDetail({ stock, onBack, loading, watchlist, toggleWatchlist }) {
 
       {loading ? <LoadingSpinner text={`Analyse de ${s.symbol}...`} /> : (
         <>
-          {/* Signal */}
-          {s.signal && (
-            <div style={{ textAlign: 'center', marginBottom: 10 }}>
-              <SignalBadge signal={s.signal} />
-            </div>
-          )}
+          {/* Signal + Add to Portfolio */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 10 }}>
+            {s.signal && <SignalBadge signal={s.signal} />}
+            {onAddToPortfolio && price > 0 && (
+              <button onClick={() => onAddToPortfolio(s)} style={{
+                padding: '4px 12px', borderRadius: 8, border: '1px solid #3b82f644',
+                background: '#3b82f611', color: '#3b82f6', fontSize: 10, fontWeight: 600,
+              }}>💼 Ajouter au portfolio</button>
+            )}
+          </div>
 
           {/* TP / SL */}
           {s.tp && (
@@ -963,6 +997,26 @@ function SearchView({ searchQuery, onSelectStock, watchlist, toggleWatchlist }) 
 // ═══════════════════════════════════════════════════════════════
 
 function WatchlistView({ watchlist, onSelectStock, toggleWatchlist, stockCache }) {
+  const [livePrices, setLivePrices] = useState({});
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refreshPrices = useCallback(async () => {
+    setRefreshing(true);
+    const updates = {};
+    for (const stock of watchlist) {
+      try {
+        const data = await fetchCurrentPrice(stock.symbol);
+        if (data?.price) updates[stock.symbol] = data;
+      } catch {}
+    }
+    setLivePrices(prev => ({ ...prev, ...updates }));
+    setRefreshing(false);
+  }, [watchlist]);
+
+  useEffect(() => {
+    if (watchlist.length > 0) refreshPrices();
+  }, [watchlist.length]); // eslint-disable-line
+
   if (watchlist.length === 0) {
     return (
       <div style={{ textAlign: 'center', padding: 40, color: '#475569' }}>
@@ -974,10 +1028,18 @@ function WatchlistView({ watchlist, onSelectStock, toggleWatchlist, stockCache }
   }
   return (
     <div style={{ padding: '12px' }}>
-      <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>{watchlist.length} action(s) suivie(s)</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ fontSize: 11, color: '#64748b' }}>{watchlist.length} action(s) suivie(s)</span>
+        <button onClick={refreshPrices} disabled={refreshing} style={{
+          padding: '4px 10px', borderRadius: 6, border: '1px solid #334155',
+          background: 'transparent', color: '#3b82f6', fontSize: 10, fontWeight: 600,
+        }}>{refreshing ? '⏳ ...' : '🔄 Actualiser'}</button>
+      </div>
       {watchlist.map((stock, i) => {
         const cached = stockCache[stock.symbol];
-        const prc = cached?.price || stock.price;
+        const live = livePrices[stock.symbol];
+        const prc = live?.price || cached?.price || stock.price;
+        const change = live?.changesPercentage || cached?.changesPercentage;
         const sig = cached?.signal || stock.signal;
         return (
           <div key={stock.symbol} className="fade-in" style={{
@@ -988,13 +1050,19 @@ function WatchlistView({ watchlist, onSelectStock, toggleWatchlist, stockCache }
               flex: 1, display: 'flex', alignItems: 'center', gap: 8,
               background: 'none', border: 'none', textAlign: 'left', padding: 0
             }}>
-              <div>
+              <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{stock.symbol}</div>
-                <div style={{ color: '#64748b', fontSize: 10 }}>{stock.name || stock.companyName}</div>
+                <div style={{ color: '#64748b', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stock.name || stock.companyName}</div>
               </div>
-              <div style={{ flex: 1 }} />
               {sig && <SignalBadge signal={sig} />}
-              {prc && <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{prc}</div>}
+              <div style={{ textAlign: 'right', minWidth: 60 }}>
+                {prc && <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{typeof prc === 'number' ? prc.toFixed(2) : prc}</div>}
+                {change != null && (
+                  <div style={{ fontSize: 10, fontWeight: 600, color: change >= 0 ? '#22c55e' : '#ef4444' }}>
+                    {change >= 0 ? '+' : ''}{typeof change === 'number' ? change.toFixed(2) : change}%
+                  </div>
+                )}
+              </div>
               {cached?.overall_score != null && <ScoreBadge score={cached.overall_score} />}
             </button>
             <button onClick={() => toggleWatchlist(stock)} style={{ background: 'none', border: 'none', fontSize: 18, padding: 4 }}>⭐</button>
@@ -1169,10 +1237,15 @@ function PortfolioView({ portfolio, setPortfolio }) {
               <div style={{ marginTop: 8, padding: 8, borderRadius: 8, background: '#3b82f611', border: '1px solid #3b82f633' }}>
                 <div style={{ fontSize: 9, color: '#3b82f6', fontWeight: 600, marginBottom: 4 }}>🤖 SUGGESTION IA</div>
                 <div style={{ fontSize: 11, color: '#e2e8f0' }}>
-                  TP: {pos.aiSuggestion.tp} • SL: {pos.aiSuggestion.sl}
+                  TP: {pos.aiSuggestion.suggested_tp || pos.aiSuggestion.tp} • SL: {pos.aiSuggestion.suggested_sl || pos.aiSuggestion.sl}
                 </div>
-                {pos.aiSuggestion.reasoning && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3 }}>{pos.aiSuggestion.reasoning}</div>}
-                <button onClick={() => handleUpdateTPSL(pos.id, pos.aiSuggestion.tp, pos.aiSuggestion.sl, 'Suggestion IA acceptée')} style={{
+                {(pos.aiSuggestion.reasoning || pos.aiSuggestion.gain_loss_ratio) && (
+                  <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3 }}>
+                    {pos.aiSuggestion.reasoning}
+                    {pos.aiSuggestion.gain_loss_ratio && <span style={{ color: '#3b82f6', fontWeight: 600 }}> • Ratio: {pos.aiSuggestion.gain_loss_ratio}</span>}
+                  </div>
+                )}
+                <button onClick={() => handleUpdateTPSL(pos.id, pos.aiSuggestion.suggested_tp || pos.aiSuggestion.tp, pos.aiSuggestion.suggested_sl || pos.aiSuggestion.sl, 'Suggestion IA acceptée')} style={{
                   marginTop: 6, padding: '5px 12px', borderRadius: 6, background: '#3b82f6', border: 'none', color: '#fff', fontSize: 10, fontWeight: 600
                 }}>Appliquer</button>
               </div>
@@ -1231,6 +1304,56 @@ function EditTPSLForm({ pos, onSave, onCancel }) {
         <button onClick={() => onSave(tp, sl, reason)} style={{ flex: 1, padding: 6, borderRadius: 6, background: '#3b82f6', border: 'none', color: '#fff', fontSize: 11, fontWeight: 600 }}>Sauver</button>
         <button onClick={onCancel} style={{ padding: '6px 12px', borderRadius: 6, background: '#0f172a', border: 'none', color: '#94a3b8', fontSize: 11 }}>Annuler</button>
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INDICATEUR HORS-LIGNE
+// ═══════════════════════════════════════════════════════════════
+
+function OfflineIndicator() {
+  const [isOffline, setIsOffline] = useState(false);
+
+  useEffect(() => {
+    const goOffline = () => setIsOffline(true);
+    const goOnline = () => setIsOffline(false);
+    setIsOffline(!navigator.onLine);
+    window.addEventListener('offline', goOffline);
+    window.addEventListener('online', goOnline);
+    return () => {
+      window.removeEventListener('offline', goOffline);
+      window.removeEventListener('online', goOnline);
+    };
+  }, []);
+
+  if (!isOffline) return null;
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, zIndex: 200,
+      background: '#f59e0b', color: '#000', textAlign: 'center',
+      padding: '4px 12px', fontSize: 11, fontWeight: 600,
+      maxWidth: 480, margin: '0 auto'
+    }}>
+      📡 Mode hors-ligne — données en cache uniquement
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ERROR BOUNDARY
+// ═══════════════════════════════════════════════════════════════
+
+function ErrorFallback({ error, onRetry }) {
+  return (
+    <div style={{ textAlign: 'center', padding: 40, color: '#ef4444' }}>
+      <div style={{ fontSize: 36, marginBottom: 10 }}>⚠️</div>
+      <div style={{ fontSize: 14, marginBottom: 6, color: '#e2e8f0' }}>Une erreur est survenue</div>
+      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>{error?.message || 'Erreur inconnue'}</div>
+      <button onClick={onRetry} style={{
+        padding: '8px 20px', borderRadius: 8, background: '#3b82f6',
+        border: 'none', color: '#fff', fontSize: 12, fontWeight: 600
+      }}>Réessayer</button>
     </div>
   );
 }
@@ -1359,6 +1482,25 @@ function InvestScopeApp() {
     else if (selectedCountry) { setSelectedCountry(null); }
   }, [selectedStock, selectedCountry]);
 
+  const handleAddToPortfolio = useCallback((stock) => {
+    const price = stock.price || 0;
+    const tp = stock.tp || (price * 1.15);
+    const sl = stock.sl || (price * 0.92);
+    addPosition({
+      symbol: stock.symbol,
+      name: stock.companyName || stock.name || '',
+      exchange: stock.exchange || '',
+      avgCost: price,
+      quantity: 1,
+      currency: stock.currency || 'EUR',
+      tp: tp,
+      sl: sl,
+    });
+    setPortfolio(getPortfolio());
+    setActiveTab('portfolio');
+    setSelectedStock(null);
+  }, []);
+
   // Redirect search input to search tab
   useEffect(() => {
     if (searchQuery && activeTab !== 'search' && !selectedCountry && !selectedStock) {
@@ -1370,7 +1512,7 @@ function InvestScopeApp() {
   const renderContent = () => {
     // Stock detail view (accessible from anywhere)
     if (selectedStock) {
-      return <StockDetail stock={selectedStock} onBack={handleBack} loading={loadingStock} watchlist={watchlist} toggleWatchlist={toggleWatchlist} />;
+      return <StockDetail stock={selectedStock} onBack={handleBack} loading={loadingStock} watchlist={watchlist} toggleWatchlist={toggleWatchlist} onAddToPortfolio={handleAddToPortfolio} />;
     }
 
     // Country detail view
@@ -1394,6 +1536,7 @@ function InvestScopeApp() {
 
   return (
     <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: '#080c1a', paddingBottom: 70 }}>
+      <OfflineIndicator />
       <NavBar activeTab={activeTab} setActiveTab={setActiveTab} searchQuery={searchQuery} setSearchQuery={setSearchQuery} loadProgress={loadProgress} />
       {renderContent()}
     </div>
